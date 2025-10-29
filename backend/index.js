@@ -1,28 +1,25 @@
-import express from 'express';
-import cors from 'cors';
-import dotenv from 'dotenv';
+import express from "express";
+import mongoose from "mongoose";
+import cors from "cors";
+import dotenv from "dotenv";
+import companyRoutes from "./routes/companyRoutes.js";
 
-// Load environment variables
 dotenv.config();
-
-import interviewRoutes from './routes/interviewRoutes.js';
-
 const app = express();
-const PORT = process.env.PORT || 5000;
 
-// Middleware
 app.use(cors());
 app.use(express.json());
 
-// Routes
-app.use('/api/interview', interviewRoutes);
+// ✅ MongoDB Connection
+mongoose
+  .connect(process.env.MONGO_URI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  })
+  .then(() => console.log("✅ MongoDB Connected"))
+  .catch((err) => console.error("❌ MongoDB Error:", err));
 
-// Simple test route
-app.get('/', (req, res) => {
-  res.send('Virtual Interview Backend Running.');
-});
+// ✅ Use Routes
+app.use("/api/companies", companyRoutes);
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-});
+app.listen(5000, () => console.log("🚀 Server running on http://localhost:5000"));
