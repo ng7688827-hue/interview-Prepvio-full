@@ -3,6 +3,7 @@ import mongoose from "mongoose";
 import cors from "cors";
 import dotenv from "dotenv";
 import companyRoutes from "./routes/companyRoutes.js";
+import interviewRoutes from "./routes/interviewRoutes.js";
 
 dotenv.config();
 const app = express();
@@ -19,7 +20,15 @@ mongoose
   .then(() => console.log("✅ MongoDB Connected"))
   .catch((err) => console.error("❌ MongoDB Error:", err));
 
-// ✅ Use Routes
+// ✅ Routes
 app.use("/api/companies", companyRoutes);
+app.use("/api/interview", interviewRoutes);
 
-app.listen(5000, () => console.log("🚀 Server running on http://localhost:5000"));
+// ✅ Health check
+app.get("/", (req, res) => {
+  res.send("🚀 Virtual Interview Backend Running Successfully!");
+});
+
+// ✅ Start Server
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => console.log(`🚀 Server running on http://localhost:${PORT}`));
