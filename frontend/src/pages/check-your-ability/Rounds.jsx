@@ -26,9 +26,26 @@ const Rounds = ({ companyType, role }) => {
     if (companyType && role) fetchRounds();
   }, [companyType, role]);
 
+  // ✅ Handle camera permission before starting interview
+  const handleStartInterview = async () => {
+    try {
+      // Ask for camera access
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      // Stop the camera immediately after permission check
+      stream.getTracks().forEach(track => track.stop());
+      // Navigate only if permission granted
+      navigate("/interview", { state: { companyType, role } });
+    } catch (error) {
+      // Permission denied or not available
+      alert("⚠️ Please allow camera access to start the interview.");
+    }
+  };
+
   if (loading)
     return (
-      <div className="text-center text-gray-600 mt-10 text-lg">Loading rounds...</div>
+      <div className="text-center text-gray-600 mt-10 text-lg">
+        Loading rounds...
+      </div>
     );
 
   return (
@@ -48,16 +65,12 @@ const Rounds = ({ companyType, role }) => {
         {rounds.length > 0 ? (
           rounds.map((round, index) => (
             <p key={index} className="text-gray-800 font-normal">
-              <span className="font-bold text-indigo-700">
-                {round.name}:
-              </span>{" "}
+              <span className="font-bold text-indigo-700">{round.name}:</span>{" "}
               {round.description}
             </p>
           ))
         ) : (
-          <p className="text-gray-500 italic">
-            No rounds found for this role.
-          </p>
+          <p className="text-gray-500 italic">No rounds found for this role.</p>
         )}
       </div>
 
@@ -69,7 +82,7 @@ const Rounds = ({ companyType, role }) => {
           &larr; Change Selection
         </button>
         <button
-          onClick={() => alert("Interview Starting...")}
+          onClick={handleStartInterview}
           className="py-3 px-8 text-lg font-normal rounded-full transition-all duration-300 border-2 border-indigo-700 bg-indigo-600 text-white shadow-lg hover:bg-indigo-700 hover:scale-[1.03]"
         >
           Start Practice Interview

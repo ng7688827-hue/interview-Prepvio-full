@@ -1,8 +1,9 @@
-// App.jsx ✅ FIXED
+// App.jsx ✅
 import React, { useState } from "react";
 import { Routes, Route } from "react-router-dom";
 import SelectRolesAndCompany from "./pages/check-your-ability/SelectRolesAndCompany.jsx";
 import Rounds from "./pages/check-your-ability/Rounds.jsx";
+import InterviewScreen from "./pages/interview-page/InterviewScreen.jsx";
 
 function App() {
   const [companyType, setCompanyType] = useState(null);
@@ -25,6 +26,10 @@ function App() {
         <Route
           path="/rounds"
           element={<Rounds companyType={companyType} role={role} />}
+        />
+        <Route
+          path="/interview"
+          element={<InterviewScreen companyType={companyType} role={role} />}
         />
       </Routes>
     </div>
