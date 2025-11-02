@@ -464,7 +464,7 @@ then begin with an appropriate first question (like, "Can you start by telling m
     <div
       ref={screenRef}
       className={`relative bg-gray-900 text-white flex flex-col justify-between overflow-hidden transition-all duration-300
-        ${isFullScreen ? "w-full h-full rounded-none mt-0" : "max-w-7xl mx-auto mt-4 rounded-xl shadow-xl h-[90vh]"}`}
+        ${isFullScreen ? "w-full h-full rounded-none mt-0" : "max-w-7xl mx-auto mt-4 rounded-xl shadow-xl h-[80vh]"}`}
       style={{ background: "linear-gradient(135deg, #1f2937, #111827)" }}
     >
       {/* HEADER */}
@@ -511,7 +511,7 @@ then begin with an appropriate first question (like, "Can you start by telling m
 
         {/* 3D INTERVIEWER MODEL */}
         <div
-          className="absolute bottom-6 right-6 w-[300px] h-[250px] rounded-lg overflow-hidden border-2 border-white shadow-lg z-10"
+          className="absolute bottom-6 right-6 w-[250px] h-[200px] rounded-lg overflow-hidden border-2 border-white shadow-lg z-10"
           style={{
             backgroundImage: `url(/image.jpg)`,
             backgroundSize: "cover",
