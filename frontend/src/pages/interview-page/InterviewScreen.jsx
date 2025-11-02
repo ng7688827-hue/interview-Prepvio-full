@@ -164,6 +164,7 @@ const InterviewScreen = ({ companyType = "Tech Startup", role = "Full Stack Deve
   const screenRef = useRef(null);
   const chatEndRef = useRef(null);
   const recognitionRef = useRef(null);
+  const autoSendTimeoutRef = useRef(null);
 
   // --- State ---
   const [isFullScreen, setIsFullScreen] = useState(false);
@@ -249,6 +250,10 @@ const InterviewScreen = ({ companyType = "Tech Startup", role = "Full Stack Deve
   const handleSpeechEnd = useCallback(() => {
     setIsSpeaking(false);
     setCurrentAiSpeech("");
+    // Automatically start listening after AI finishes speaking
+    setTimeout(() => {
+      startSpeechRecognition(true);
+    }, 500);
   }, []);
 
   // Text-to-speech trigger
@@ -268,56 +273,6 @@ const InterviewScreen = ({ companyType = "Tech Startup", role = "Full Stack Deve
       }, 100);
     });
   }, []);
-
-  // Speech recognition
-  const startSpeechRecognition = useCallback(() => {
-    if (isLoadingAI || isSpeaking) return;
-
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      setError("Speech Recognition not supported");
-      return;
-    }
-
-    if (recognitionRef.current && isRecording) {
-      recognitionRef.current.stop();
-      recognitionRef.current = null;
-      setIsRecording(false);
-      return;
-    }
-
-    const recognition = new SpeechRecognition();
-    recognition.lang = "en-US";
-    recognitionRef.current = recognition;
-
-    recognition.onstart = () => {
-      setIsRecording(true);
-      setError(null);
-    };
-    
-    recognition.onresult = (e) => {
-      const transcript = e.results[0][0].transcript;
-      setInputValue(transcript);
-    };
-    
-    recognition.onerror = (e) => {
-      console.error("Speech Recognition Error:", e);
-      setError("Error in speech recognition");
-      setIsRecording(false);
-    };
-    
-    recognition.onend = () => {
-      setIsRecording(false);
-      recognitionRef.current = null;
-    };
-    
-    try {
-      recognition.start();
-    } catch(e) {
-      console.error("Recognition start failed:", e);
-      setIsRecording(false);
-    }
-  }, [isLoadingAI, isSpeaking, isRecording]);
 
   // Send Message Handler
   const handleSendMessage = useCallback(
@@ -381,17 +336,104 @@ Focus on coding logic, frameworks, problem-solving, and optimization.`;
     [isLoadingAI, isSpeaking, chatMessages, interviewStage, role, companyType, formatHistoryForGemini, fetchGeminiContent, textToSpeech]
   );
 
-  // Camera setup
+  // Speech recognition with auto-send
+  const startSpeechRecognition = useCallback(() => {
+    if (isLoadingAI || isSpeaking) return;
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      setError("Speech Recognition not supported");
+      return;
+    }
+
+    if (recognitionRef.current && isRecording) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+      setIsRecording(false);
+      if (autoSendTimeoutRef.current) {
+        clearTimeout(autoSendTimeoutRef.current);
+        autoSendTimeoutRef.current = null;
+      }
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-US";
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognitionRef.current = recognition;
+
+    recognition.onstart = () => {
+      setIsRecording(true);
+      setError(null);
+    };
+    
+    recognition.onresult = (e) => {
+      let transcript = '';
+      for (let i = 0; i < e.results.length; i++) {
+        transcript += e.results[i][0].transcript;
+      }
+      setInputValue(transcript);
+      
+      // Clear existing timeout
+      if (autoSendTimeoutRef.current) {
+        clearTimeout(autoSendTimeoutRef.current);
+      }
+      
+      // Set new timeout for auto-send after 3 seconds of silence
+      autoSendTimeoutRef.current = setTimeout(() => {
+        if (transcript.trim() && recognitionRef.current) {
+          recognitionRef.current.stop();
+          setIsRecording(false);
+          handleSendMessage(transcript);
+        }
+      }, 3000);
+    };
+    
+    recognition.onerror = (e) => {
+      console.error("Speech Recognition Error:", e);
+      setError("Error in speech recognition");
+      setIsRecording(false);
+      if (autoSendTimeoutRef.current) {
+        clearTimeout(autoSendTimeoutRef.current);
+        autoSendTimeoutRef.current = null;
+      }
+    };
+    
+    recognition.onend = () => {
+      setIsRecording(false);
+      recognitionRef.current = null;
+      if (autoSendTimeoutRef.current) {
+        clearTimeout(autoSendTimeoutRef.current);
+        autoSendTimeoutRef.current = null;
+      }
+    };
+    
+    try {
+      recognition.start();
+    } catch(e) {
+      console.error("Recognition start failed:", e);
+      setIsRecording(false);
+    }
+  }, [isLoadingAI, isSpeaking, isRecording, handleSendMessage]);
+
+  // Camera setup with optimized settings
   useEffect(() => {
     const startCamera = async () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: true,
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            frameRate: { ideal: 30 },
+            facingMode: "user"
+          },
           audio: false,
         });
         setCameraAllowed(true);
         if (userVideoRef.current) {
           userVideoRef.current.srcObject = stream;
+          userVideoRef.current.playsInline = true;
           await userVideoRef.current.play().catch((e) => console.log("Play error:", e));
         }
       } catch (error) {
@@ -401,8 +443,19 @@ Focus on coding logic, frameworks, problem-solving, and optimization.`;
       }
     };
     startCamera();
+    
+    return () => {
+      if (userVideoRef.current?.srcObject) {
+        const tracks = userVideoRef.current.srcObject.getTracks();
+        tracks.forEach(track => track.stop());
+      }
+      if (autoSendTimeoutRef.current) {
+        clearTimeout(autoSendTimeoutRef.current);
+      }
+    };
   }, []);
 
+  // Initial AI Greeting
   // Initial AI Greeting
   useEffect(() => {
     if (cameraAllowed && companyType && role && !greeted) {
@@ -429,6 +482,7 @@ then begin with an appropriate first question (like, "Can you start by telling m
           setChatMessages([firstMsg]);
           await textToSpeech(aiQ);
           setGreeted(true);
+          // Don't auto-open chat - let user open it manually
         } catch (error) {
           console.error("Error sending initial greeting:", error);
           setError(error.message || "Failed to start AI conversation");
@@ -568,7 +622,7 @@ then begin with an appropriate first question (like, "Can you start by telling m
             <div ref={chatEndRef} />
           </div>
 
-          <div className="p-4 border-t bg-gray-50 flex gap-2 flex-shrink-0">
+          {/* <div className="p-4 border-t bg-gray-50 flex gap-2 flex-shrink-0">
             <button
               type="button"
               onClick={startSpeechRecognition}
@@ -597,7 +651,7 @@ then begin with an appropriate first question (like, "Can you start by telling m
             >
               Send
             </button>
-          </div>
+          </div> */}
         </div>
       </div>
 
