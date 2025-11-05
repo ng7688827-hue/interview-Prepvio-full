@@ -26,17 +26,18 @@ const Rounds = ({ companyType, role }) => {
     if (companyType && role) fetchRounds();
   }, [companyType, role]);
 
-  // ✅ Handle camera permission before starting interview
   const handleStartInterview = async () => {
     try {
-      // Ask for camera access
       const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      // Stop the camera immediately after permission check
       stream.getTracks().forEach(track => track.stop());
-      // Navigate only if permission granted
-      navigate("/interview", { state: { companyType, role } });
+      
+      // Navigate with state flag indicating interview is active
+      navigate("/interview", { 
+  state: { companyType, role, preventBack: true },
+  replace: true // prevents back navigation from Rounds to Interview
+});
+
     } catch (error) {
-      // Permission denied or not available
       alert("⚠️ Please allow camera access to start the interview.");
     }
   };

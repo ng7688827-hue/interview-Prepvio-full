@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { PhoneOff, MessageSquare, Code, Maximize, Minimize, X, Mic } from "lucide-react";
-import { Canvas } from "@react-three/fiber";
-import { Environment } from "@react-three/drei";
-import { useGLTF } from "@react-three/drei";
-import { useFrame } from "@react-three/fiber";
+import { Canvas, useFrame } from "@react-three/fiber";
+import { Environment, useGLTF } from "@react-three/drei";
+import { useNavigate } from "react-router-dom";
+
 
 // --- Enhanced Model Component with Dynamic Speech ---
 function DynamicModel({ speechText, onSpeechEnd, ...props }) {
@@ -13,7 +13,9 @@ function DynamicModel({ speechText, onSpeechEnd, ...props }) {
   const intervalRef = useRef(null);
 
   // Enable morph targets
-  Object.values(materials || {}).forEach((mat) => (mat.morphTargets = true));
+  useEffect(() => {
+    Object.values(materials || {}).forEach((mat) => (mat.morphTargets = true));
+  }, [materials]);
 
   const letterToViseme = {
     a: 'aa', b: 'PP', c: 'CH', d: 'DD', e: 'E', f: 'FF',
@@ -30,7 +32,6 @@ function DynamicModel({ speechText, onSpeechEnd, ...props }) {
   // Speech function that uses dynamic text
   useEffect(() => {
     if (!speechText) {
-      // Clear animation when no text
       setChars([]);
       setCurrentCharIndex(0);
       if (intervalRef.current) {
@@ -40,7 +41,6 @@ function DynamicModel({ speechText, onSpeechEnd, ...props }) {
       return;
     }
 
-    // Cancel any ongoing speech
     window.speechSynthesis.cancel();
 
     const utterance = new SpeechSynthesisUtterance(speechText);
@@ -65,7 +65,6 @@ function DynamicModel({ speechText, onSpeechEnd, ...props }) {
 
     window.speechSynthesis.speak(utterance);
 
-    // Setup lip sync
     const textChars = speechText.toLowerCase().split('');
     setChars(textChars);
 
@@ -98,7 +97,6 @@ function DynamicModel({ speechText, onSpeechEnd, ...props }) {
     }
   }, [nodes]);
 
-  // Randomized offsets for natural motion
   const offsetY = useRef(Math.random() * 0.08);
   const offsetX = useRef(Math.random() * 0.05);
 
@@ -106,13 +104,11 @@ function DynamicModel({ speechText, onSpeechEnd, ...props }) {
   useFrame((state) => {
     const t = state.clock.getElapsedTime();
 
-    // Head rotation animation
     if (headBoneRef.current) {
       headBoneRef.current.rotation.y = Math.sin(t * 0.4 + offsetY.current) * 0.02;
       headBoneRef.current.rotation.x = Math.sin(t * 0.3 + offsetX.current) * 0.04;
     }
 
-    // Lip-sync morph targets
     if (meshRef.current?.morphTargetInfluences && chars.length > 0) {
       const influences = meshRef.current.morphTargetInfluences;
       influences.fill(0);
@@ -126,7 +122,6 @@ function DynamicModel({ speechText, onSpeechEnd, ...props }) {
     }
   });
 
-  // Only render mesh if it exists
   if (!nodes?.rp_carla_rigged_001_geo) return null;
 
   return (
@@ -152,25 +147,60 @@ function DynamicModel({ speechText, onSpeechEnd, ...props }) {
 
 useGLTF.preload('/final_prepvio_model.glb');
 
-// --- Gemini API Constants ---
-const GEMINI_API_URL =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent";
+// --- API Constants ---
+const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent";
+const BACKEND_UPLOAD_URL = "/api/upload"; 
+const apiKey = "AIzaSyDFwVPzUlOs-_CRUV_ec_tMEFUTyuP_PRo"; 
 
-const apiKey = "AIzaSyDFwVPzUlOs-_CRUV_ec_tMEFUTyuP_PRo";
+// Generate report with feedback
+const generateReportContent = (messages, company, role) => {
+  let content = `--- Mock Interview Report ---\n\n`;
+  content += `Role: ${role}\n`;
+  content += `Company Type: ${company}\n`;
+  content += `Date: ${new Date().toLocaleDateString()}\n\n`;
+  content += `--- Conversation Log ---\n\n`;
 
-// Main InterviewScreen component
-const InterviewScreen = ({ companyType = "Tech Startup", role = "Full Stack Developer", setStage = () => {}, userId = "user1" }) => {
+  messages.forEach((msg) => {
+    content += `${msg.sender}: ${msg.text}\n`;
+    
+    if (msg.sender === "User" && msg.feedback) {
+      const suggestion = msg.feedback.suggestion || "";
+      const example = msg.feedback.example || "";
+      content += `[Feedback]: ${suggestion}|||${example}\n`;
+    }
+  });
+
+  content += `\n=== FINAL ANALYSIS ===\n\n`;
+  content += `**Overall Performance Summary**\n`;
+  content += `This interview covered both HR and technical aspects for the ${role} position.\n\n`;
+  
+  content += `**Key Strengths Observed**\n`;
+  content += `- Engaged actively throughout the conversation\n`;
+  content += `- Demonstrated willingness to learn and improve\n\n`;
+  
+  content += `**General Recommendations**\n`;
+  content += `1. Continue practicing technical concepts relevant to ${role}\n`;
+  content += `2. Use the STAR method for behavioral questions\n`;
+  content += `3. Build small projects to demonstrate practical skills\n`;
+  content += `4. Review feedback provided after each response above\n`;
+
+  return content;
+};
+
+const InterviewScreen = ({ 
+  companyType = "Tech Startup", 
+  role = "Full Stack Developer", 
+  setStage = () => {}, 
+  userId = "user1" 
+}) => {
   const userVideoRef = useRef(null);
   const screenRef = useRef(null);
   const chatEndRef = useRef(null);
   const recognitionRef = useRef(null);
-  const autoSendTimeoutRef = useRef(null);
 
-  // --- State ---
   const [isFullScreen, setIsFullScreen] = useState(false);
   const [cameraAllowed, setCameraAllowed] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
-  
   const [chatMessages, setChatMessages] = useState([]);
   const [inputValue, setInputValue] = useState("");
   const [isLoadingAI, setIsLoadingAI] = useState(false);
@@ -180,13 +210,111 @@ const InterviewScreen = ({ companyType = "Tech Startup", role = "Full Stack Deve
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [interviewStage, setInterviewStage] = useState("intro");
   const [currentAiSpeech, setCurrentAiSpeech] = useState("");
+  const navigate = useNavigate();
 
-  // Auto-scroll
+// ✅ First define all states here...
+
+// ✅ Then define endInterview
+const endInterview = useCallback(() => {
+  console.log("Interview ended and resources cleaned.");
+  if (window.speechSynthesis) window.speechSynthesis.cancel();
+  if (window.currentMediaStream) {
+    window.currentMediaStream.getTracks().forEach(track => track.stop());
+    window.currentMediaStream = null;
+  }
+  if (userVideoRef.current?.srcObject) {
+    userVideoRef.current.srcObject.getTracks().forEach(track => track.stop());
+    userVideoRef.current.srcObject = null;
+  }
+  if (recognitionRef.current) {
+    recognitionRef.current.stop();
+    recognitionRef.current = null;
+  }
+  setIsSpeaking(false);
+  setIsRecording(false);
+  setGreeted(false);
+  setChatMessages([]);
+  setError(null);
+  console.log("✅ All media and states cleared.");
+}, []);
+
+// ✅ THEN place this BELOW endInterview
+useEffect(() => {
+  const handleBeforeUnload = () => {
+    sessionStorage.setItem("refreshFlag", "true");
+  };
+  window.addEventListener("beforeunload", handleBeforeUnload);
+
+  if (sessionStorage.getItem("refreshFlag") === "true") {
+    sessionStorage.removeItem("refreshFlag");
+    endInterview();
+    navigate("/", { replace: true });
+  }
+
+  return () => {
+    window.removeEventListener("beforeunload", handleBeforeUnload);
+  };
+}, [navigate, endInterview]);
+
+  
+
+
+
+// 🧩 When user presses Back, terminate interview and remove history
+// 🧩 When user presses Back, terminate interview and remove history
+useEffect(() => {
+  // Push a dummy state to detect back navigation
+  window.history.pushState(null, "", window.location.pathname);
+
+  const handlePopState = (e) => {
+    console.log("⬅️ User navigated back — ending interview and blocking forward navigation");
+
+    // Prevent going back to interview
+    window.history.pushState(null, "", window.location.pathname);
+    
+    // Clean up everything IMMEDIATELY and SYNCHRONOUSLY
+    if (window.speechSynthesis) {
+      window.speechSynthesis.cancel();
+    }
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+    }
+    if (userVideoRef.current?.srcObject) {
+      userVideoRef.current.srcObject.getTracks().forEach(track => track.stop());
+      userVideoRef.current.srcObject = null;
+    }
+    if (window.currentMediaStream) {
+      window.currentMediaStream.getTracks().forEach(track => track.stop());
+      window.currentMediaStream = null;
+    }
+
+    // Navigate away AFTER cleanup
+    navigate("/", { replace: true });
+  };
+
+  window.addEventListener("popstate", handlePopState);
+  
+  return () => {
+    window.removeEventListener("popstate", handlePopState);
+  };
+}, [navigate]);
+
+
+  // --- 3️⃣ useEffect: cleanup on unmount ---
+  useEffect(() => {
+    return () => {
+      endInterview();
+    };
+  }, [endInterview]);
+
+
+
+
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatMessages]);
 
-  // Format chat for Gemini
   const formatHistoryForGemini = useCallback((history) => {
     return history.map((msg) => ({
       role: msg.sender === "AI" ? "model" : "user",
@@ -194,12 +322,7 @@ const InterviewScreen = ({ companyType = "Tech Startup", role = "Full Stack Deve
     }));
   }, []);
 
-  // Fetch from Gemini
   const fetchGeminiContent = useCallback(async (contents, systemInstruction) => {
-    if (!apiKey || apiKey === "YOUR_GEMINI_API_KEY_HERE") {
-      throw new Error("Please set your Gemini API key");
-    }
-
     const payload = {
       contents,
       systemInstruction: { parts: [{ text: systemInstruction }] },
@@ -220,13 +343,9 @@ const InterviewScreen = ({ companyType = "Tech Startup", role = "Full Stack Deve
           const errorText = await res.text();
           console.error("API Error:", errorText);
           
-          if (res.status === 403) {
-            throw new Error("API Key is invalid or restricted");
-          } else if (res.status === 429) {
-            throw new Error("Rate limit exceeded");
-          } else {
-            throw new Error(`API error: ${res.status}`);
-          }
+          if (res.status === 403) throw new Error("API Key is invalid or restricted");
+          if (res.status === 429) throw new Error("Rate limit exceeded. Try again later.");
+          throw new Error(`API error: ${res.status}`);
         }
 
         const data = await res.json();
@@ -246,48 +365,77 @@ const InterviewScreen = ({ companyType = "Tech Startup", role = "Full Stack Deve
     }
   }, []);
 
-  // Handle speech completion
+  const generateFeedbackForAnswer = useCallback(async (userAnswer, aiQuestion) => {
+    try {
+      const feedbackPrompt = `You are an interview coach analyzing a candidate's answer.
+
+Previous Question: "${aiQuestion}"
+Candidate's Answer: "${userAnswer}"
+
+Provide constructive feedback in this EXACT format (no additional text):
+SUGGESTION: [One specific improvement suggestion in 1-2 sentences]
+EXAMPLE: [A better way to phrase the answer in 1 sentence]
+
+Keep it concise and actionable.`;
+
+      const feedbackContent = [
+        { role: "user", parts: [{ text: feedbackPrompt }] }
+      ];
+
+      const feedbackText = await fetchGeminiContent(feedbackContent, "You are a helpful interview coach providing brief, actionable feedback.");
+      
+      const suggestionMatch = feedbackText.match(/SUGGESTION:\s*(.+?)(?=EXAMPLE:|$)/s);
+      const exampleMatch = feedbackText.match(/EXAMPLE:\s*(.+?)$/s);
+      
+      return {
+        suggestion: suggestionMatch ? suggestionMatch[1].trim() : "Keep practicing to improve your interview responses.",
+        example: exampleMatch ? exampleMatch[1].trim() : ""
+      };
+    } catch (err) {
+      console.error("Feedback generation error:", err);
+      return {
+        suggestion: "Consider providing more specific examples from your experience.",
+        example: "Try structuring your answer with concrete details about what you did and what you achieved."
+      };
+    }
+  }, [fetchGeminiContent]);
+
   const handleSpeechEnd = useCallback(() => {
     setIsSpeaking(false);
     setCurrentAiSpeech("");
-    // Automatically start listening after AI finishes speaking
-    setTimeout(() => {
-      startSpeechRecognition(true);
-    }, 500);
+    setTimeout(() => startSpeechRecognition(), 500);
   }, []);
 
-  // Text-to-speech trigger
-  const textToSpeech = useCallback(async (text) => {
+  const textToSpeech = useCallback((text) => {
     if (!text) return;
-    
     setIsSpeaking(true);
     setCurrentAiSpeech(text);
-    
-    // Wait for speech to complete
-    return new Promise((resolve) => {
-      const checkInterval = setInterval(() => {
-        if (!window.speechSynthesis.speaking) {
-          clearInterval(checkInterval);
-          resolve();
-        }
-      }, 100);
-    });
   }, []);
 
-  // Send Message Handler
   const handleSendMessage = useCallback(
     async (text) => {
       const messageToSend = text.trim();
       if (!messageToSend || isLoadingAI || isSpeaking) return;
       
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+        recognitionRef.current = null;
+        setIsRecording(false);
+      }
+      
       setError(null);
       setInputValue("");
 
+      const lastAiMessage = chatMessages.filter(m => m.sender === "AI").slice(-1)[0];
+      const lastAiQuestion = lastAiMessage ? lastAiMessage.text : "";
+
       const userMsg = {
-        sender: "You",
+        sender: "User",
         text: messageToSend,
         time: new Date().toLocaleTimeString(),
+        feedback: null
       };
+      
       setChatMessages((prev) => [...prev, userMsg]);
       setIsLoadingAI(true);
 
@@ -312,6 +460,17 @@ Focus on coding logic, frameworks, problem-solving, and optimization.`;
         const formattedHistory = formatHistoryForGemini([...chatMessages, userMsg]);
         const aiReply = await fetchGeminiContent(formattedHistory, systemInstruction);
 
+        const feedback = await generateFeedbackForAnswer(messageToSend, lastAiQuestion);
+        
+        setChatMessages((prev) => {
+          const updated = [...prev];
+          const lastUserIndex = updated.map(m => m.sender).lastIndexOf("User");
+          if (lastUserIndex !== -1) {
+            updated[lastUserIndex] = { ...updated[lastUserIndex], feedback };
+          }
+          return updated;
+        });
+
         const lowerReply = aiReply.toLowerCase();
         if (interviewStage === "intro" && (lowerReply.includes("move on to some technical") || lowerReply.includes("let's now move to technical"))) {
           setInterviewStage("transition");
@@ -326,6 +485,7 @@ Focus on coding logic, frameworks, problem-solving, and optimization.`;
         };
         setChatMessages((prev) => [...prev, aiMsg]);
         await textToSpeech(aiReply);
+        
       } catch (err) {
         console.error("Error communicating with AI:", err);
         setError(err.message || "AI connection error");
@@ -333,34 +493,27 @@ Focus on coding logic, frameworks, problem-solving, and optimization.`;
         setIsLoadingAI(false);
       }
     },
-    [isLoadingAI, isSpeaking, chatMessages, interviewStage, role, companyType, formatHistoryForGemini, fetchGeminiContent, textToSpeech]
+    [isLoadingAI, isSpeaking, chatMessages, interviewStage, role, companyType, formatHistoryForGemini, fetchGeminiContent, textToSpeech, generateFeedbackForAnswer]
   );
 
-  // Speech recognition with auto-send
   const startSpeechRecognition = useCallback(() => {
     if (isLoadingAI || isSpeaking) return;
 
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      setError("Speech Recognition not supported");
+      setError("Speech Recognition not supported in this browser.");
       return;
     }
 
     if (recognitionRef.current && isRecording) {
       recognitionRef.current.stop();
-      recognitionRef.current = null;
-      setIsRecording(false);
-      if (autoSendTimeoutRef.current) {
-        clearTimeout(autoSendTimeoutRef.current);
-        autoSendTimeoutRef.current = null;
-      }
       return;
     }
 
     const recognition = new SpeechRecognition();
     recognition.lang = "en-US";
-    recognition.continuous = true;
-    recognition.interimResults = true;
+    recognition.continuous = false;
+    recognition.interimResults = false;
     recognitionRef.current = recognition;
 
     recognition.onstart = () => {
@@ -369,43 +522,26 @@ Focus on coding logic, frameworks, problem-solving, and optimization.`;
     };
     
     recognition.onresult = (e) => {
-      let transcript = '';
-      for (let i = 0; i < e.results.length; i++) {
-        transcript += e.results[i][0].transcript;
-      }
+      const transcript = Array.from(e.results)
+        .map(result => result[0].transcript)
+        .join('');
       setInputValue(transcript);
-      
-      // Clear existing timeout
-      if (autoSendTimeoutRef.current) {
-        clearTimeout(autoSendTimeoutRef.current);
-      }
-      
-      // Set new timeout for auto-send after 3 seconds of silence
-      autoSendTimeoutRef.current = setTimeout(() => {
-        if (transcript.trim() && recognitionRef.current) {
-          recognitionRef.current.stop();
-          setIsRecording(false);
-          handleSendMessage(transcript);
-        }
-      }, 3000);
     };
     
     recognition.onerror = (e) => {
       console.error("Speech Recognition Error:", e);
-      setError("Error in speech recognition");
-      setIsRecording(false);
-      if (autoSendTimeoutRef.current) {
-        clearTimeout(autoSendTimeoutRef.current);
-        autoSendTimeoutRef.current = null;
+      if (e.error !== 'no-speech') {
+        setError("Error in speech recognition: " + e.error);
       }
+      setIsRecording(false);
     };
     
     recognition.onend = () => {
       setIsRecording(false);
       recognitionRef.current = null;
-      if (autoSendTimeoutRef.current) {
-        clearTimeout(autoSendTimeoutRef.current);
-        autoSendTimeoutRef.current = null;
+      
+      if (inputValue.trim()) {
+        handleSendMessage(inputValue);
       }
     };
     
@@ -415,9 +551,70 @@ Focus on coding logic, frameworks, problem-solving, and optimization.`;
       console.error("Recognition start failed:", e);
       setIsRecording(false);
     }
-  }, [isLoadingAI, isSpeaking, isRecording, handleSendMessage]);
+  }, [isLoadingAI, isSpeaking, isRecording, handleSendMessage, inputValue]);
+  
+  const handleEndInterview = useCallback(async () => {
+    if (isLoadingAI || isSpeaking) return;
 
-  // Camera setup with optimized settings
+    if (window.speechSynthesis.speaking) {
+      window.speechSynthesis.cancel();
+    }
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+    }
+
+    const reportText = generateReportContent(chatMessages, companyType, role);
+    const sanitizedRole = role.replace(/[^a-zA-Z0-9]/g, '_');
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, '');
+    const filename = `${sanitizedRole}_Report_${timestamp}.pdf`;
+    
+    setIsLoadingAI(true);
+    // setError("Generating PDF and uploading report to Cloudflare R2...");
+    setError("Analyzing the Interview");
+
+    try {
+      const response = await fetch(BACKEND_UPLOAD_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filename,
+          content: reportText,
+          role,
+          companyType,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setError(`Report saved! Redirecting to summary page...`);
+  console.log("Uploaded Report URL:", data.publicUrl);
+
+  // 🧠 Save report link and data to localStorage (for AfterInterview.js)
+  localStorage.setItem("interviewReport", JSON.stringify({
+    role,
+    companyType,
+    reportUrl: data.publicUrl,
+    timestamp: new Date().toISOString(),
+  }));
+
+  // ⏳ Wait a moment for user feedback, then redirect
+  setTimeout(() => {
+    setError(null);
+    navigate("/after-interview", { replace: true }); // 👈 Redirect to AfterInterview.js
+  }, 3000);
+      } else {
+        throw new Error(data.details || data.error || "Unknown upload error.");
+      }
+    } catch (err) {
+      console.error("Upload failed:", err);
+      setError(`❌ Report upload failed: ${err.message}. Please try again.`);
+    } finally {
+      setIsLoadingAI(false);
+    }
+  }, [chatMessages, companyType, role, setStage, isLoadingAI, isSpeaking]);
+
   useEffect(() => {
     const startCamera = async () => {
       try {
@@ -428,7 +625,7 @@ Focus on coding logic, frameworks, problem-solving, and optimization.`;
             frameRate: { ideal: 30 },
             facingMode: "user"
           },
-          audio: false,
+          audio: true,
         });
         setCameraAllowed(true);
         if (userVideoRef.current) {
@@ -439,7 +636,7 @@ Focus on coding logic, frameworks, problem-solving, and optimization.`;
       } catch (error) {
         setCameraAllowed(false);
         console.error("Camera access denied:", error);
-        setError("Camera access denied");
+        setError("Camera/Mic access denied. Please enable them to continue.");
       }
     };
     startCamera();
@@ -449,14 +646,12 @@ Focus on coding logic, frameworks, problem-solving, and optimization.`;
         const tracks = userVideoRef.current.srcObject.getTracks();
         tracks.forEach(track => track.stop());
       }
-      if (autoSendTimeoutRef.current) {
-        clearTimeout(autoSendTimeoutRef.current);
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
       }
     };
   }, []);
 
-  // Initial AI Greeting
-  // Initial AI Greeting
   useEffect(() => {
     if (cameraAllowed && companyType && role && !greeted) {
       const startAiConversation = async () => {
@@ -482,7 +677,6 @@ then begin with an appropriate first question (like, "Can you start by telling m
           setChatMessages([firstMsg]);
           await textToSpeech(aiQ);
           setGreeted(true);
-          // Don't auto-open chat - let user open it manually
         } catch (error) {
           console.error("Error sending initial greeting:", error);
           setError(error.message || "Failed to start AI conversation");
@@ -494,7 +688,6 @@ then begin with an appropriate first question (like, "Can you start by telling m
     }
   }, [cameraAllowed, companyType, role, greeted, fetchGeminiContent, textToSpeech]);
 
-  // Fullscreen toggle
   const toggleFullScreen = async () => {
     const elem = screenRef.current;
     if (!document.fullscreenElement) {
@@ -509,7 +702,7 @@ then begin with an appropriate first question (like, "Can you start by telling m
   if (!cameraAllowed && !error) {
     return (
       <div className="text-center mt-20 text-lg text-gray-700">
-        Requesting camera permission...
+        Requesting camera and microphone permission...
       </div>
     );
   }
@@ -521,7 +714,6 @@ then begin with an appropriate first question (like, "Can you start by telling m
         ${isFullScreen ? "w-full h-full rounded-none mt-0" : "max-w-7xl mx-auto mt-4 rounded-xl shadow-xl h-[80vh]"}`}
       style={{ background: "linear-gradient(135deg, #1f2937, #111827)" }}
     >
-      {/* HEADER */}
       <div className="flex justify-between items-center px-6 py-3 bg-gray-800 rounded-t-2xl flex-shrink-0">
         <h2 className="text-lg font-light text-gray-200">
           {companyType} — {role}
@@ -531,7 +723,6 @@ then begin with an appropriate first question (like, "Can you start by telling m
         </button>
       </div>
 
-      {/* MAIN AREA */}
       <div className="flex-grow flex items-center justify-center relative overflow-hidden">
         <video
           ref={userVideoRef}
@@ -545,15 +736,27 @@ then begin with an appropriate first question (like, "Can you start by telling m
         </p>
         
         {error && (
-          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-red-800 text-white p-6 rounded-lg shadow-xl z-20 max-w-md">
-            <p className="font-semibold text-lg mb-2">Error:</p>
+          <div className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-white p-6 rounded-lg shadow-xl z-20 max-w-md
+              ${error.includes("✅ Report saved!") ? 'bg-green-600' : 
+                error.includes("Generating PDF and uploading") ? 'bg-yellow-600' : 
+                'bg-red-800'
+              }`}
+          >
+            <p className="font-semibold text-lg mb-2">
+              {error.includes("✅ Report saved!") ? 'Success' : 
+                error.includes("Generating PDF and uploading") ? 'Processing Report' : 
+                'Error'
+              }
+            </p>
             <p className="text-sm">{error}</p>
-            <button 
-              onClick={() => setError(null)} 
-              className="mt-4 bg-white text-red-800 px-4 py-2 rounded hover:bg-gray-100 transition"
-            >
-              Dismiss
-            </button>
+            {error.includes("❌") && (
+              <button 
+                onClick={() => setError(null)} 
+                className="mt-4 bg-white text-red-800 px-4 py-2 rounded hover:bg-gray-100 transition"
+              >
+                Dismiss
+              </button>
+            )}
           </div>
         )}
         
@@ -563,7 +766,6 @@ then begin with an appropriate first question (like, "Can you start by telling m
           </div>
         )}
 
-        {/* 3D INTERVIEWER MODEL */}
         <div
           className="absolute bottom-6 right-6 w-[250px] h-[200px] rounded-lg overflow-hidden border-2 border-white shadow-lg z-10"
           style={{
@@ -586,7 +788,6 @@ then begin with an appropriate first question (like, "Can you start by telling m
           </p>
         </div>
 
-        {/* Chat Panel */}
         <div
           className={`absolute top-0 right-0 h-full w-full max-w-md bg-white shadow-2xl flex flex-col text-gray-800 z-20 transform transition-transform duration-300 ${
             isChatOpen ? "translate-x-0" : "translate-x-full"
@@ -601,20 +802,22 @@ then begin with an appropriate first question (like, "Can you start by telling m
 
           <div className="flex-grow overflow-y-auto p-4 space-y-4">
             {chatMessages.map((msg, idx) => (
-              <div key={idx} className={`flex ${msg.sender === "You" ? "justify-end" : "justify-start"}`}>
-                <div
-                  className={`p-3 rounded-xl max-w-[75%] shadow-md ${
-                    msg.sender === "You"
-                      ? "bg-indigo-500 text-white rounded-br-none"
-                      : "bg-gray-200 text-gray-800 rounded-tl-none"
-                  }`}
-                >
-                  <span className="text-xs font-semibold opacity-80">{msg.sender}</span>
-                  <p className="text-sm mt-1">{msg.text}</p>
+              <div key={idx}>
+                <div className={`flex ${msg.sender === "User" ? "justify-end" : "justify-start"}`}>
+                  <div
+                    className={`p-3 rounded-xl max-w-[75%] shadow-md ${
+                      msg.sender === "User"
+                        ? "bg-indigo-500 text-white rounded-br-none"
+                        : "bg-gray-200 text-gray-800 rounded-tl-none"
+                    }`}
+                  >
+                    <span className="text-xs font-semibold opacity-80">{msg.sender}</span>
+                    <p className="text-sm mt-1">{msg.text}</p>
+                  </div>
                 </div>
               </div>
             ))}
-            {isLoadingAI && (
+            {isLoadingAI && !error && (
               <div className="text-gray-500 italic flex justify-start">
                 <div className="p-3 bg-gray-100 rounded-xl rounded-tl-none text-sm shadow-sm">AI is typing…</div>
               </div>
@@ -622,7 +825,7 @@ then begin with an appropriate first question (like, "Can you start by telling m
             <div ref={chatEndRef} />
           </div>
 
-          {/* <div className="p-4 border-t bg-gray-50 flex gap-2 flex-shrink-0">
+          <div className="p-4 border-t bg-gray-50 flex gap-2 flex-shrink-0">
             <button
               type="button"
               onClick={startSpeechRecognition}
@@ -649,17 +852,17 @@ then begin with an appropriate first question (like, "Can you start by telling m
               disabled={!inputValue.trim() || isLoadingAI || isSpeaking}
               className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-3 rounded-xl transition disabled:opacity-50"
             >
-              Send
+Send
             </button>
-          </div> */}
+          </div>
         </div>
       </div>
 
-      {/* CONTROL BAR */}
-      <div className="flex justify-center gap-12 bg-gray-800 py-4 border-t border-gray-700 rounded-b-2xl flex-shrink-0">
+           <div className="flex justify-center gap-12 bg-gray-800 py-4 border-t border-gray-700 rounded-b-2xl flex-shrink-0">
         <button
-          onClick={() => setStage("rounds")}
-          className="flex flex-col items-center text-red-500 hover:text-red-400 transition"
+          onClick={handleEndInterview}
+          disabled={isLoadingAI || isSpeaking}
+          className="flex flex-col items-center text-red-500 hover:text-red-400 transition disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <PhoneOff className="w-7 h-7 mb-1" />
           <span className="text-xs font-medium">End Interview</span>
@@ -672,7 +875,7 @@ then begin with an appropriate first question (like, "Can you start by telling m
           <span className="text-xs font-medium">Chat</span>
         </button>
         <button
-          onClick={() => console.log("Code editor coming soon")}
+          onClick={() => setError("Code editor feature is coming soon!")}
           className="flex flex-col items-center text-gray-300 hover:text-white transition"
         >
           <Code className="w-7 h-7 mb-1" />

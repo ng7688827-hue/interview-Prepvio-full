@@ -4,6 +4,7 @@ import { Routes, Route } from "react-router-dom";
 import SelectRolesAndCompany from "./pages/check-your-ability/SelectRolesAndCompany.jsx";
 import Rounds from "./pages/check-your-ability/Rounds.jsx";
 import InterviewScreen from "./pages/interview-page/InterviewScreen.jsx";
+import AfterInterview from "./pages/interview-page/AfterInterview.jsx";
 
 function App() {
   const [companyType, setCompanyType] = useState(null);
@@ -31,6 +32,7 @@ function App() {
           path="/interview"
           element={<InterviewScreen companyType={companyType} role={role} />}
         />
+        <Route path="/after-interview" element={<AfterInterview />} /> {/* ✅ Add this */}
       </Routes>
     </div>
   );
