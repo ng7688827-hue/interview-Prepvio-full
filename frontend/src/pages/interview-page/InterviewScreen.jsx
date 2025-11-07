@@ -148,9 +148,9 @@ function DynamicModel({ speechText, onSpeechEnd, ...props }) {
 useGLTF.preload('/final_prepvio_model.glb');
 
 // --- API Constants ---
-const GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent";
+const FIREWORKS_API_URL = "https://api.fireworks.ai/inference/v1/chat/completions";
 const BACKEND_UPLOAD_URL = "/api/upload"; 
-const apiKey = "AIzaSyDFwVPzUlOs-_CRUV_ec_tMEFUTyuP_PRo"; 
+const apiKey = "fw_3ZRYSYVzzkpfzTQXYpxbZiiq"; // Replace with your Fireworks API key
 
 // Generate report with feedback
 const generateReportContent = (messages, company, role) => {
@@ -212,131 +212,118 @@ const InterviewScreen = ({
   const [currentAiSpeech, setCurrentAiSpeech] = useState("");
   const navigate = useNavigate();
 
-// ✅ First define all states here...
-
-// ✅ Then define endInterview
-const endInterview = useCallback(() => {
-  console.log("Interview ended and resources cleaned.");
-  if (window.speechSynthesis) window.speechSynthesis.cancel();
-  if (window.currentMediaStream) {
-    window.currentMediaStream.getTracks().forEach(track => track.stop());
-    window.currentMediaStream = null;
-  }
-  if (userVideoRef.current?.srcObject) {
-    userVideoRef.current.srcObject.getTracks().forEach(track => track.stop());
-    userVideoRef.current.srcObject = null;
-  }
-  if (recognitionRef.current) {
-    recognitionRef.current.stop();
-    recognitionRef.current = null;
-  }
-  setIsSpeaking(false);
-  setIsRecording(false);
-  setGreeted(false);
-  setChatMessages([]);
-  setError(null);
-  console.log("✅ All media and states cleared.");
-}, []);
-
-// ✅ THEN place this BELOW endInterview
-useEffect(() => {
-  const handleBeforeUnload = () => {
-    sessionStorage.setItem("refreshFlag", "true");
-  };
-  window.addEventListener("beforeunload", handleBeforeUnload);
-
-  if (sessionStorage.getItem("refreshFlag") === "true") {
-    sessionStorage.removeItem("refreshFlag");
-    endInterview();
-    navigate("/", { replace: true });
-  }
-
-  return () => {
-    window.removeEventListener("beforeunload", handleBeforeUnload);
-  };
-}, [navigate, endInterview]);
-
-  
-
-
-
-// 🧩 When user presses Back, terminate interview and remove history
-// 🧩 When user presses Back, terminate interview and remove history
-useEffect(() => {
-  // Push a dummy state to detect back navigation
-  window.history.pushState(null, "", window.location.pathname);
-
-  const handlePopState = (e) => {
-    console.log("⬅️ User navigated back — ending interview and blocking forward navigation");
-
-    // Prevent going back to interview
-    window.history.pushState(null, "", window.location.pathname);
-    
-    // Clean up everything IMMEDIATELY and SYNCHRONOUSLY
-    if (window.speechSynthesis) {
-      window.speechSynthesis.cancel();
-    }
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
-      recognitionRef.current = null;
+  const endInterview = useCallback(() => {
+    console.log("Interview ended and resources cleaned.");
+    if (window.speechSynthesis) window.speechSynthesis.cancel();
+    if (window.currentMediaStream) {
+      window.currentMediaStream.getTracks().forEach(track => track.stop());
+      window.currentMediaStream = null;
     }
     if (userVideoRef.current?.srcObject) {
       userVideoRef.current.srcObject.getTracks().forEach(track => track.stop());
       userVideoRef.current.srcObject = null;
     }
-    if (window.currentMediaStream) {
-      window.currentMediaStream.getTracks().forEach(track => track.stop());
-      window.currentMediaStream = null;
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
+    }
+    setIsSpeaking(false);
+    setIsRecording(false);
+    setGreeted(false);
+    setChatMessages([]);
+    setError(null);
+    console.log("✅ All media and states cleared.");
+  }, []);
+
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      sessionStorage.setItem("refreshFlag", "true");
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    if (sessionStorage.getItem("refreshFlag") === "true") {
+      sessionStorage.removeItem("refreshFlag");
+      endInterview();
+      navigate("/", { replace: true });
     }
 
-    // Navigate away AFTER cleanup
-    navigate("/", { replace: true });
-  };
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+    };
+  }, [navigate, endInterview]);
 
-  window.addEventListener("popstate", handlePopState);
-  
-  return () => {
-    window.removeEventListener("popstate", handlePopState);
-  };
-}, [navigate]);
+  useEffect(() => {
+    window.history.pushState(null, "", window.location.pathname);
 
+    const handlePopState = (e) => {
+      console.log("⬅️ User navigated back — ending interview and blocking forward navigation");
 
-  // --- 3️⃣ useEffect: cleanup on unmount ---
+      window.history.pushState(null, "", window.location.pathname);
+      
+      if (window.speechSynthesis) {
+        window.speechSynthesis.cancel();
+      }
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+        recognitionRef.current = null;
+      }
+      if (userVideoRef.current?.srcObject) {
+        userVideoRef.current.srcObject.getTracks().forEach(track => track.stop());
+        userVideoRef.current.srcObject = null;
+      }
+      if (window.currentMediaStream) {
+        window.currentMediaStream.getTracks().forEach(track => track.stop());
+        window.currentMediaStream = null;
+      }
+
+      navigate("/", { replace: true });
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    
+    return () => {
+      window.removeEventListener("popstate", handlePopState);
+    };
+  }, [navigate]);
+
   useEffect(() => {
     return () => {
       endInterview();
     };
   }, [endInterview]);
 
-
-
-
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatMessages]);
 
-  const formatHistoryForGemini = useCallback((history) => {
+  const formatHistoryForFireworks = useCallback((history) => {
     return history.map((msg) => ({
-      role: msg.sender === "AI" ? "model" : "user",
-      parts: [{ text: msg.text }],
+      role: msg.sender === "AI" ? "assistant" : "user",
+      content: msg.text,
     }));
   }, []);
 
-  const fetchGeminiContent = useCallback(async (contents, systemInstruction) => {
-    const payload = {
-      contents,
-      systemInstruction: { parts: [{ text: systemInstruction }] },
-    };
+  const fetchFireworksContent = useCallback(async (messages, systemInstruction) => {
+    const messagesWithSystem = [
+      { role: "system", content: systemInstruction },
+      ...messages
+    ];
 
     let attempts = 0;
     const maxAttempts = 3;
 
     while (attempts < maxAttempts) {
       try {
-        const res = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
+        const res = await fetch(FIREWORKS_API_URL, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
+          headers: {
+            "Authorization": `Bearer ${apiKey}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            model: "accounts/fireworks/models/llama-v3p1-8b-instruct",
+            messages: messagesWithSystem
+          })
         });
 
         if (!res.ok) {
@@ -349,7 +336,7 @@ useEffect(() => {
         }
 
         const data = await res.json();
-        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        const text = data?.choices?.[0]?.message?.content;
         
         if (!text && attempts === maxAttempts - 1) {
           throw new Error("Empty response from API");
@@ -378,11 +365,11 @@ EXAMPLE: [A better way to phrase the answer in 1 sentence]
 
 Keep it concise and actionable.`;
 
-      const feedbackContent = [
-        { role: "user", parts: [{ text: feedbackPrompt }] }
+      const feedbackMessages = [
+        { role: "user", content: feedbackPrompt }
       ];
 
-      const feedbackText = await fetchGeminiContent(feedbackContent, "You are a helpful interview coach providing brief, actionable feedback.");
+      const feedbackText = await fetchFireworksContent(feedbackMessages, "You are a helpful interview coach providing brief, actionable feedback.");
       
       const suggestionMatch = feedbackText.match(/SUGGESTION:\s*(.+?)(?=EXAMPLE:|$)/s);
       const exampleMatch = feedbackText.match(/EXAMPLE:\s*(.+?)$/s);
@@ -398,7 +385,7 @@ Keep it concise and actionable.`;
         example: "Try structuring your answer with concrete details about what you did and what you achieved."
       };
     }
-  }, [fetchGeminiContent]);
+  }, [fetchFireworksContent]);
 
   const handleSpeechEnd = useCallback(() => {
     setIsSpeaking(false);
@@ -457,8 +444,8 @@ Ask only one clear technical question at a time based on the candidate's last an
 Focus on coding logic, frameworks, problem-solving, and optimization.`;
         }
 
-        const formattedHistory = formatHistoryForGemini([...chatMessages, userMsg]);
-        const aiReply = await fetchGeminiContent(formattedHistory, systemInstruction);
+        const formattedHistory = formatHistoryForFireworks([...chatMessages, userMsg]);
+        const aiReply = await fetchFireworksContent(formattedHistory, systemInstruction);
 
         const feedback = await generateFeedbackForAnswer(messageToSend, lastAiQuestion);
         
@@ -493,7 +480,7 @@ Focus on coding logic, frameworks, problem-solving, and optimization.`;
         setIsLoadingAI(false);
       }
     },
-    [isLoadingAI, isSpeaking, chatMessages, interviewStage, role, companyType, formatHistoryForGemini, fetchGeminiContent, textToSpeech, generateFeedbackForAnswer]
+    [isLoadingAI, isSpeaking, chatMessages, interviewStage, role, companyType, formatHistoryForFireworks, fetchFireworksContent, textToSpeech, generateFeedbackForAnswer]
   );
 
   const startSpeechRecognition = useCallback(() => {
@@ -570,7 +557,6 @@ Focus on coding logic, frameworks, problem-solving, and optimization.`;
     const filename = `${sanitizedRole}_Report_${timestamp}.pdf`;
     
     setIsLoadingAI(true);
-    // setError("Generating PDF and uploading report to Cloudflare R2...");
     setError("Analyzing the Interview");
 
     try {
@@ -589,21 +575,19 @@ Focus on coding logic, frameworks, problem-solving, and optimization.`;
 
       if (response.ok) {
         setError(`Report saved! Redirecting to summary page...`);
-  console.log("Uploaded Report URL:", data.publicUrl);
+        console.log("Uploaded Report URL:", data.publicUrl);
 
-  // 🧠 Save report link and data to localStorage (for AfterInterview.js)
-  localStorage.setItem("interviewReport", JSON.stringify({
-    role,
-    companyType,
-    reportUrl: data.publicUrl,
-    timestamp: new Date().toISOString(),
-  }));
+        localStorage.setItem("interviewReport", JSON.stringify({
+          role,
+          companyType,
+          reportUrl: data.publicUrl,
+          timestamp: new Date().toISOString(),
+        }));
 
-  // ⏳ Wait a moment for user feedback, then redirect
-  setTimeout(() => {
-    setError(null);
-    navigate("/after-interview", { replace: true }); // 👈 Redirect to AfterInterview.js
-  }, 3000);
+        setTimeout(() => {
+          setError(null);
+          navigate("/after-interview", { replace: true });
+        }, 3000);
       } else {
         throw new Error(data.details || data.error || "Unknown upload error.");
       }
@@ -613,7 +597,7 @@ Focus on coding logic, frameworks, problem-solving, and optimization.`;
     } finally {
       setIsLoadingAI(false);
     }
-  }, [chatMessages, companyType, role, setStage, isLoadingAI, isSpeaking]);
+  }, [chatMessages, companyType, role, setStage, isLoadingAI, isSpeaking, navigate]);
 
   useEffect(() => {
     const startCamera = async () => {
@@ -663,11 +647,11 @@ then begin with an appropriate first question (like, "Can you start by telling m
           setIsLoadingAI(true);
           setChatMessages([]);
           
-          const initialContent = [
-            { role: "user", parts: [{ text: "Start the interview introduction." }] },
+          const initialMessages = [
+            { role: "user", content: "Start the interview introduction." },
           ];
           
-          const aiQ = await fetchGeminiContent(initialContent, greetingPrompt);
+          const aiQ = await fetchFireworksContent(initialMessages, greetingPrompt);
           
           const firstMsg = {
             sender: "AI",
@@ -686,7 +670,7 @@ then begin with an appropriate first question (like, "Can you start by telling m
       };
       startAiConversation();
     }
-  }, [cameraAllowed, companyType, role, greeted, fetchGeminiContent, textToSpeech]);
+  }, [cameraAllowed, companyType, role, greeted, fetchFireworksContent, textToSpeech]);
 
   const toggleFullScreen = async () => {
     const elem = screenRef.current;
@@ -738,13 +722,13 @@ then begin with an appropriate first question (like, "Can you start by telling m
         {error && (
           <div className={`absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-white p-6 rounded-lg shadow-xl z-20 max-w-md
               ${error.includes("✅ Report saved!") ? 'bg-green-600' : 
-                error.includes("Generating PDF and uploading") ? 'bg-yellow-600' : 
+                error.includes("Analyzing the Interview") ? 'bg-yellow-600' : 
                 'bg-red-800'
               }`}
           >
             <p className="font-semibold text-lg mb-2">
               {error.includes("✅ Report saved!") ? 'Success' : 
-                error.includes("Generating PDF and uploading") ? 'Processing Report' : 
+                error.includes("Analyzing the Interview") ? 'Processing Report' : 
                 'Error'
               }
             </p>
