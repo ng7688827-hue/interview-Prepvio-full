@@ -3,7 +3,241 @@ import { PhoneOff, MessageSquare, Code, Maximize, Minimize, X, Mic } from "lucid
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Environment, useGLTF } from "@react-three/drei";
 import { useNavigate } from "react-router-dom";
+import Editor from "@monaco-editor/react";
 
+// --- Code Editor Modal Component ---
+const CodeEditorModal = ({ isOpen, onClose, problem }) => {
+  const [language, setLanguage] = useState("javascript");
+  const [output, setOutput] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const editorRef = useRef(null);
+
+  if (!isOpen) return null;
+
+  const boilerplate = problem?.boilerplate?.[language] || `// Waiting for coding problem...`;
+
+  const handleEditorDidMount = (editor) => {
+    editorRef.current = editor;
+  };
+
+  useEffect(() => {
+    if (editorRef.current && problem?.boilerplate?.[language]) {
+      editorRef.current.setValue(problem.boilerplate[language]);
+    }
+  }, [problem, language]);
+
+  const handleRun = async () => {
+    const code = editorRef.current?.getValue();
+    if (!code || !problem?.testCases) {
+      setOutput([{ id: 0, output: "⚠️ No test cases available!" }]);
+      return;
+    }
+
+    setLoading(true);
+    setOutput([{ id: 0, output: "⏳ Running test cases..." }]);
+
+    try {
+      const results = [];
+      for (let i = 0; i < problem.testCases.length; i++) {
+        const test = problem.testCases[i];
+        const args = test.input;
+        const executionBoilerplate =
+          language === "python"
+            ? `\n\nprint(${problem.functionName}(${args}))`
+            : language === "cpp"
+            ? `\n#include <iostream>\nint main() {\n  std::cout << ${problem.functionName}(${args}) << std::endl;\n  return 0;\n}`
+            : `\n\nconsole.log(${problem.functionName}(${args}));`;
+
+        const userCode = `${code}\n${executionBoilerplate}`;
+
+        const res = await fetch("http://localhost:5000/run", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ language, code: userCode }),
+        });
+
+        const data = await res.json();
+        const result = data.run?.output?.trim() || data.run?.stderr?.trim() || "No output";
+        const passed = result === test.expected.trim();
+
+        results.push({
+          id: i + 1,
+          input: test.input,
+          expected: test.expected,
+          output: result,
+          passed,
+        });
+      }
+      setOutput(results);
+    } catch (err) {
+      console.error(err);
+      setOutput([{ id: 0, output: "❌ Execution error. Check backend connection." }]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black bg-opacity-80 flex items-center justify-center p-4">
+      <div className="w-full h-full max-w-7xl max-h-[95vh] bg-gray-900 rounded-lg shadow-2xl flex flex-col">
+        {/* Header */}
+        <div className="flex justify-between items-center bg-gray-800 px-6 py-4 border-b border-gray-700 rounded-t-lg">
+          <h2 className="text-xl font-semibold text-white">Code Editor</h2>
+          <button
+            onClick={onClose}
+            className="p-2 hover:bg-gray-700 rounded-full transition"
+          >
+            <X className="w-6 h-6 text-white" />
+          </button>
+        </div>
+
+        <div className="flex flex-1 overflow-hidden">
+          {/* Problem Description */}
+          <div className="w-1/3 border-r border-gray-700 overflow-auto bg-gray-800 p-6">
+            <h3 className="text-2xl font-bold text-green-400 mb-4">
+              {problem?.title || "No Problem Loaded"}
+            </h3>
+            
+            {problem?.companies && problem.companies.length > 0 && (
+              <div className="mb-4">
+                <h4 className="text-sm font-semibold mb-2 text-gray-400 uppercase">Asked in Companies</h4>
+                <div className="flex flex-wrap gap-2">
+                  {problem.companies.map((company, index) => (
+                    <span
+                      key={index}
+                      className="px-3 py-1 bg-blue-900 text-blue-200 rounded-full text-xs font-medium border border-blue-700"
+                    >
+                      {company}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <p className="text-gray-300 mb-4 text-base leading-relaxed">
+              {problem?.description || "Waiting for the interviewer to assign a coding problem..."}
+            </p>
+            
+            {problem?.example && (
+              <div className="bg-gray-700 p-4 rounded-lg mb-4">
+                <h4 className="text-yellow-300 font-semibold mb-2 text-lg">Example</h4>
+                <pre className="text-sm font-mono text-gray-200 whitespace-pre-wrap">
+                  {problem.example}
+                </pre>
+              </div>
+            )}
+
+            {problem?.testCases && problem.testCases.length > 0 && (
+              <div>
+                <h4 className="text-cyan-300 font-semibold mb-3 text-lg">Test Cases</h4>
+                <ul className="list-disc ml-5 text-gray-300 space-y-1">
+                  {problem.testCases.map((test, idx) => (
+                    <li key={idx} className="text-sm">
+                      <span className="font-medium">Input:</span> {test.input} → <span className="font-medium">Expected:</span> {test.expected}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+
+          {/* Code Editor */}
+          <div className="flex-1 flex flex-col">
+            <div className="flex justify-between items-center bg-[#252526] px-4 py-2 border-b border-gray-700">
+              <select
+                className="bg-[#1e1e1e] text-gray-200 px-3 py-1 rounded focus:outline-none focus:ring-2 focus:ring-green-500"
+                value={language}
+                onChange={(e) => setLanguage(e.target.value)}
+              >
+                <option value="javascript">JavaScript</option>
+                <option value="python">Python</option>
+                <option value="cpp">C++</option>
+              </select>
+              <button
+                onClick={handleRun}
+                disabled={loading}
+                className={`px-6 py-2 rounded-lg font-semibold shadow-lg transition ${
+                  loading
+                    ? "bg-gray-600 cursor-not-allowed"
+                    : "bg-green-600 hover:bg-green-500 transform hover:scale-105"
+                }`}
+              >
+                {loading ? "Running..." : "Run Code"}
+              </button>
+            </div>
+
+            <Editor
+              height="60%"
+              theme="vs-dark"
+              language={language === "cpp" ? "cpp" : language}
+              value={boilerplate}
+              onMount={handleEditorDidMount}
+              options={{
+                fontSize: 14,
+                fontFamily: "Consolas, 'Courier New', monospace",
+                minimap: { enabled: false },
+                automaticLayout: true,
+                scrollBeyondLastLine: false,
+                smoothScrolling: true,
+                cursorSmoothCaretAnimation: true,
+                renderWhitespace: "none",
+                lineNumbers: "on",
+                roundedSelection: true,
+                scrollbar: {
+                  verticalScrollbarSize: 10,
+                  horizontalScrollbarSize: 10,
+                },
+              }}
+            />
+
+            {/* Output Console */}
+            <div className="h-40 bg-gray-950 text-white p-4 overflow-auto border-t border-gray-700 font-mono">
+              <h4 className="text-cyan-400 font-bold mb-3 text-xl">Execution Results</h4>
+              {Array.isArray(output) ? (
+                output.map((res, idx) => (
+                  <div
+                    key={idx}
+                    className={`p-3 rounded mb-3 border ${
+                      res.id === 0
+                        ? "bg-gray-700 border-gray-600"
+                        : res.passed
+                        ? "bg-green-900 border-green-700"
+                        : "bg-red-900 border-red-700"
+                    }`}
+                  >
+                    {res.id !== 0 ? (
+                      <>
+                        <strong className="text-lg">Test {res.id}:</strong>{" "}
+                        <span
+                          className={`font-bold ${
+                            res.passed ? "text-green-300" : "text-red-300"
+                          }`}
+                        >
+                          {res.passed ? "PASSED" : "FAILED"}
+                        </span>
+                        <div className="mt-1 text-sm">
+                          <span className="text-gray-400 block">Input: {res.input}</span>
+                          <span className="text-gray-400 block">Expected: {res.expected}</span>
+                          <span className="text-gray-400 block">
+                            Output: <span className="text-white whitespace-pre-wrap">{res.output}</span>
+                          </span>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="text-white">{res.output}</div>
+                    )}
+                  </div>
+                ))
+              ) : (
+                <pre className="text-red-400">{output}</pre>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // --- Enhanced Model Component with Dynamic Speech ---
 function DynamicModel({ speechText, onSpeechEnd, ...props }) {
@@ -12,7 +246,6 @@ function DynamicModel({ speechText, onSpeechEnd, ...props }) {
   const headBoneRef = useRef(null);
   const intervalRef = useRef(null);
 
-  // Enable morph targets
   useEffect(() => {
     Object.values(materials || {}).forEach((mat) => (mat.morphTargets = true));
   }, [materials]);
@@ -29,7 +262,6 @@ function DynamicModel({ speechText, onSpeechEnd, ...props }) {
   const [chars, setChars] = useState([]);
   const morphKeys = nodes?.rp_carla_rigged_001_geo?.morphTargetDictionary || {};
 
-  // Speech function that uses dynamic text
   useEffect(() => {
     if (!speechText) {
       setChars([]);
@@ -87,7 +319,6 @@ function DynamicModel({ speechText, onSpeechEnd, ...props }) {
     };
   }, [speechText, onSpeechEnd]);
 
-  // Assign head bone after nodes are loaded
   useEffect(() => {
     if (nodes?.rp_carla_rigged_001_geo?.skeleton) {
       const head = nodes.rp_carla_rigged_001_geo.skeleton.bones.find((b) =>
@@ -100,7 +331,6 @@ function DynamicModel({ speechText, onSpeechEnd, ...props }) {
   const offsetY = useRef(Math.random() * 0.08);
   const offsetX = useRef(Math.random() * 0.05);
 
-  // Animate
   useFrame((state) => {
     const t = state.clock.getElapsedTime();
 
@@ -150,9 +380,8 @@ useGLTF.preload('/final_prepvio_model.glb');
 // --- API Constants ---
 const FIREWORKS_API_URL = "https://api.fireworks.ai/inference/v1/chat/completions";
 const BACKEND_UPLOAD_URL = "/api/upload"; 
-const apiKey = "fw_3ZRYSYVzzkpfzTQXYpxbZiiq"; // Replace with your Fireworks API key
+const apiKey = "fw_3ZLCds9uiu6JBgAe2VWkWYh9";
 
-// Generate report with feedback
 const generateReportContent = (messages, company, role) => {
   let content = `--- Mock Interview Report ---\n\n`;
   content += `Role: ${role}\n`;
@@ -210,6 +439,8 @@ const InterviewScreen = ({
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [interviewStage, setInterviewStage] = useState("intro");
   const [currentAiSpeech, setCurrentAiSpeech] = useState("");
+  const [isCodeEditorOpen, setIsCodeEditorOpen] = useState(false);
+  const [codingProblem, setCodingProblem] = useState(null);
   const navigate = useNavigate();
 
   const endInterview = useCallback(() => {
@@ -304,53 +535,38 @@ const InterviewScreen = ({
   }, []);
 
   const fetchFireworksContent = useCallback(async (messages, systemInstruction) => {
-    const messagesWithSystem = [
-      { role: "system", content: systemInstruction },
-      ...messages
-    ];
+  const messagesWithSystem = [
+    { role: "system", content: systemInstruction },
+    ...messages
+  ];
 
-    let attempts = 0;
-    const maxAttempts = 3;
+  try {
+    const res = await fetch(FIREWORKS_API_URL, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({
+        model: "accounts/fireworks/models/llama-v3p1-405b-instruct",   // ✅ FIXED MODEL
+        messages: messagesWithSystem
+      })
+    });
 
-    while (attempts < maxAttempts) {
-      try {
-        const res = await fetch(FIREWORKS_API_URL, {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${apiKey}`,
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            model: "accounts/fireworks/models/llama-v3p1-8b-instruct",
-            messages: messagesWithSystem
-          })
-        });
-
-        if (!res.ok) {
-          const errorText = await res.text();
-          console.error("API Error:", errorText);
-          
-          if (res.status === 403) throw new Error("API Key is invalid or restricted");
-          if (res.status === 429) throw new Error("Rate limit exceeded. Try again later.");
-          throw new Error(`API error: ${res.status}`);
-        }
-
-        const data = await res.json();
-        const text = data?.choices?.[0]?.message?.content;
-        
-        if (!text && attempts === maxAttempts - 1) {
-          throw new Error("Empty response from API");
-        }
-        
-        if (text) return text;
-        
-      } catch (err) {
-        attempts++;
-        if (attempts >= maxAttempts) throw err;
-        await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempts) * 1000));
-      }
+    if (!res.ok) {
+      const errorText = await res.text();
+      console.error("API Error:", errorText);
+      throw new Error(`API error: ${res.status}`);
     }
-  }, []);
+
+    const data = await res.json();
+    return data?.choices?.[0]?.message?.content || "No response";
+  } catch (err) {
+    console.error("Fireworks API Error:", err);
+    throw err;
+  }
+}, []);
+
 
   const generateFeedbackForAnswer = useCallback(async (userAnswer, aiQuestion) => {
     try {
@@ -398,6 +614,47 @@ Keep it concise and actionable.`;
     setIsSpeaking(true);
     setCurrentAiSpeech(text);
   }, []);
+
+  const generateCodingProblem = useCallback(async () => {
+  try {
+    const response = await fetch("http://localhost:5000/fireworks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      console.error("Backend Error:", err);
+      throw new Error(err?.error || "Failed to reach backend");
+    }
+
+    const data = await response.json();
+
+    // ✅ If backend already returns clean JSON
+    if (data.title && data.description && data.testCases) {
+      setCodingProblem(data);
+      setIsCodeEditorOpen(true);
+      return;
+    }
+
+    // ⚙️ If backend returns Fireworks wrapper (fallback)
+    const text = data?.choices?.[0]?.message?.content?.trim();
+    if (!text) throw new Error("Empty response text");
+
+    let cleanJson = text.replace(/```json|```/g, "").trim();
+    const match = cleanJson.match(/\{[\s\S]*\}/);
+    if (!match) throw new Error("No JSON found");
+    const parsed = JSON.parse(match[0]);
+
+    setCodingProblem(parsed);
+    setIsCodeEditorOpen(true);
+  } catch (error) {
+    console.error("Error generating problem:", error);
+    setError("❌ Failed to generate coding problem. Please try again.");
+  }
+}, []);
+
 
   const handleSendMessage = useCallback(
     async (text) => {
@@ -483,7 +740,7 @@ Focus on coding logic, frameworks, problem-solving, and optimization.`;
     [isLoadingAI, isSpeaking, chatMessages, interviewStage, role, companyType, formatHistoryForFireworks, fetchFireworksContent, textToSpeech, generateFeedbackForAnswer]
   );
 
-  const startSpeechRecognition = useCallback(() => {
+ const startSpeechRecognition = useCallback(() => {
     if (isLoadingAI || isSpeaking) return;
 
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -859,13 +1116,24 @@ Send
           <span className="text-xs font-medium">Chat</span>
         </button>
         <button
-          onClick={() => setError("Code editor feature is coming soon!")}
-          className="flex flex-col items-center text-gray-300 hover:text-white transition"
-        >
-          <Code className="w-7 h-7 mb-1" />
-          <span className="text-xs font-medium">Code Editor</span>
-        </button>
+  onClick={generateCodingProblem} // Opens code editor with generated problem
+  disabled={isLoadingAI}
+  className="flex flex-col items-center text-gray-300 hover:text-white transition disabled:opacity-50"
+>
+  <Code className="w-7 h-7 mb-1" />
+  <span className="text-xs font-medium">Code Editor</span>
+</button>
+
+
       </div>
+      {isCodeEditorOpen && (
+  <CodeEditorModal
+    isOpen={isCodeEditorOpen}
+    onClose={() => setIsCodeEditorOpen(false)}
+    problem={codingProblem}
+  />
+)}
+
     </div>
   );
 };

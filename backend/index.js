@@ -1,9 +1,8 @@
-// server.js (Integrated Backend with Feedback Under Each User Response)
-
 import express from "express";
 import mongoose from "mongoose";
 import cors from "cors";
 import dotenv from "dotenv";
+import axios from "axios"; // 👈 Added this import for Piston and Fireworks APIs
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import PDFDocument from "pdfkit";
 import companyRoutes from "./routes/companyRoutes.js";
@@ -59,7 +58,7 @@ app.post("/api/upload", async (req, res) => {
       // Header
       doc.fillColor("#1E40AF").rect(0, 0, pageWidth, 80).fill();
       doc.fillColor("#FFFFFF").fontSize(20).font("Helvetica-Bold").text("AI Mock Interview Report", margin, 25);
-      doc.fontSize(11).font("Helvetica").text(`Position: ${role || "N/A"}  •  Company: ${companyType || "N/A"}`, margin, 55);
+      doc.fontSize(11).font("Helvetica").text(`Position: ${role || "N/A"}  •  Company: ${companyType || "N/A"}`, margin, 55);
       doc.moveDown(2);
 
       const lines = content.split("\n");
@@ -125,7 +124,7 @@ app.post("/api/upload", async (req, res) => {
           doc.fillColor("#333333").font("Helvetica").text(message, { width: chatWidth });
           doc.moveDown(0.5);
 
-          // 🟡 Immediately check next line for feedback (FIXED LOGIC FROM server.js)
+          // 🟡 Immediately check next line for feedback
           const nextLine = lines[i + 1] ? lines[i + 1].trim() : "";
           if (
             lastUserMessage &&
@@ -149,7 +148,7 @@ app.post("/api/upload", async (req, res) => {
               }
             }
 
-            // ✅ PROPERLY CALCULATE BOX HEIGHT (from server.js)
+            // ✅ PROPERLY CALCULATE BOX HEIGHT
             const feedbackX = margin + userIndent;
             const feedbackWidth = contentWidth - userIndent;
             const padding = 10;
@@ -320,11 +319,117 @@ app.post("/api/upload", async (req, res) => {
   }
 });
 
-// --- 4. Routes ---
+// --- 4. Code Execution Route (Piston API) ---
+app.post("/run", async (req, res) => {
+  const { language, code, input } = req.body;
+
+  try {
+    const response = await axios.post("https://emkc.org/api/v2/piston/execute", {
+      language,
+      version: "*",
+      files: [{ content: code }],
+      stdin: input || "",
+    });
+
+    res.json(response.data);
+  } catch (err) {
+    console.error("❌ Piston API Error:", err.message);
+    res.status(500).json({ error: "Error executing code" });
+  }
+});
+
+// --- 5. Code Problem Generation Route (Fireworks API) ---
+app.post("/fireworks", async (req, res) => {
+  const randomSeed = Math.floor(Math.random() * 1000000);
+  const creativeTwist = [
+    "math operations",
+    "comparisons",
+    "logic gates",
+    "conditional checks",
+    "simple calculations",
+    "basic algorithms",
+  ][Math.floor(Math.random() * 6)];
+
+  const dynamicPrompt = `Generate a unique beginner coding problem with two integer inputs (a, b).
+
+Topic: ${creativeTwist}
+Seed: ${randomSeed}
+
+CRITICAL: Respond ONLY with valid JSON. No explanation, no markdown, no text before or after.
+
+Required JSON format:
+{
+  "problemId": "unique_id",
+  "title": "Problem Title",
+  "description": "Clear problem statement in one sentence.",
+  "example": "Input: a = 3, b = 5\\nOutput: 8",
+  "functionName": "functionName",
+  "companies": ["Google", "Amazon", "Microsoft"],
+  "boilerplate": {
+    "javascript": "function functionName(a, b) {\\n  // Write your code here\\n}",
+    "cpp": "#include <iostream>\\nusing namespace std;\\nint functionName(int a, int b) {\\n  // Write your code here\\n}",
+    "python": "def functionName(a, b):\\n  # Write your code here"
+  },
+  "testCases": [
+    { "input": "1, 2", "expected": "3" },
+    { "input": "5, 3", "expected": "8" },
+    { "input": "0, 0", "expected": "0" },
+    { "input": "10, -5", "expected": "5" }
+  ]
+}
+
+Companies pool: Google, Amazon, Microsoft, Meta, Apple, Netflix, Adobe, Goldman Sachs, Morgan Stanley, Uber, Airbnb, Bloomberg, Atlassian, Oracle, IBM, Accenture, Infosys, TCS, Wipro, Salesforce
+
+Make the problem unique and different each time. Return ONLY the JSON object.`;
+
+  try {
+    const response = await axios.post(
+      "https://api.fireworks.ai/inference/v1/chat/completions",
+      {
+        model: "accounts/fireworks/models/llama-v3p1-8b-instruct",
+        messages: [
+          {
+            role: "system",
+            content: "You are a JSON generator. You MUST respond with ONLY valid JSON. Never include explanations, markdown, or any text outside the JSON object.",
+          },
+          { role: "user", content: dynamicPrompt },
+        ],
+        max_tokens: 1000,
+        temperature: 0.9,
+        response_format: { type: "json_object" },
+      },
+      {
+        headers: {
+          Authorization: `Bearer fw_3ZRYSYVzzkpfzTQXYpxbZiiq`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    res.json(response.data);
+  } catch (error) {
+    console.error("🔥 Fireworks API Error:");
+    if (error.response) {
+      console.error("Status:", error.response.status);
+      console.error("Data:", error.response.data);
+      res
+        .status(error.response.status)
+        .json({ error: "Fireworks API failed", details: error.response.data });
+    } else {
+      console.error("Error:", error.message);
+      res
+        .status(500)
+        .json({ error: "Request failed", details: error.message });
+    }
+  }
+});
+
+
+// --- 6. Routes for Companies and Interviews (Original Routes) ---
 app.use("/api/companies", companyRoutes);
 app.use("/api/interview", interviewRoutes);
 
-// --- 5. Health checks ---
+// --- 7. Health checks ---
 app.get("/", (req, res) => {
   res.send("🚀 Virtual Interview Backend Running Successfully!");
 });
@@ -332,7 +437,7 @@ app.get("/health", (req, res) => {
   res.json({ status: "OK", timestamp: new Date().toISOString() });
 });
 
-// --- 6. Start Server ---
+// --- 8. Start Server ---
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 Server running on http://localhost:${PORT}`);
