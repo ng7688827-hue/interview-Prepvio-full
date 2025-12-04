@@ -1,9 +1,15 @@
 import { Router } from "express";
-import interviewController from "../controllers/interviewController.js";
+import {
+  getInterviewQuestion,
+  generateCodingProblem
+} from "../controllers/interviewController.js";
 
 const router = Router();
 
-// POST /api/interview/ask
-router.post("/ask", interviewController.getInterviewQuestion);
+// Normal AI interview Q&A
+router.post("/ask", getInterviewQuestion);
+
+// Coding problem generator
+router.post("/fireworks", generateCodingProblem);
 
 export default router;

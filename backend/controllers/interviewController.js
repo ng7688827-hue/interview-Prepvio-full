@@ -1,66 +1,156 @@
+import axios from "axios";
 import dotenv from "dotenv";
+
 dotenv.config();
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_MODEL = "gemini-2.5-flash";
-const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+const FIREWORKS_API_KEY = 'fw_3ZLCds9uiu6JBgAe2VWkWYh9';
+const FIREWORKS_URL = "https://api.fireworks.ai/inference/v1/chat/completions";
 
-// ✅ Format conversation history for Gemini API
-const formatHistory = (history) =>
-  history.map((msg) => ({
-    role: msg.role === "ai" ? "model" : "user",
-    parts: [{ text: msg.text }],
-  }));
-
-// ✅ Main AI Interview Function
-const getInterviewQuestion = async (req, res) => {
-  const { chatHistory, companyType, role, userId } = req.body;
+/* ==========================================================
+   🔹 NORMAL INTERVIEW QUESTION (OPTIONAL)
+========================================================== */
+export const getInterviewQuestion = async (req, res) => {
+  const { chatHistory, companyType, role } = req.body;
 
   if (!chatHistory || !companyType || !role) {
     return res.status(400).json({ message: "Missing required interview parameters." });
   }
 
   try {
-    const systemPrompt = `You are a highly skilled and professional technical interviewer for a ${companyType} company, hiring for a ${role} position.
-Follow these strict rules:
-1. Begin with standard introductory questions (e.g., "Introduce yourself").
-2. Progress to technical and scenario-based questions.
-3. Follow up based on candidate's responses.
-4. Maintain a professional, polite tone.
-5. Respond with only one question at a time.`;
+    const systemPrompt = `
+You are a professional interviewer at a ${companyType}.
+Ask one question at a time. No explanations. Start with intro → technical.
+`;
 
-    const formattedHistory = [
-      { role: "user", parts: [{ text: systemPrompt }] },
-      ...formatHistory(chatHistory),
+    const messages = [
+      { role: "system", content: systemPrompt },
+      ...chatHistory.map(msg => ({
+        role: msg.role === "ai" ? "assistant" : "user",
+        content: msg.text,
+      }))
     ];
 
-    const response = await fetch(GEMINI_API_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contents: formattedHistory }),
-    });
+    const response = await axios.post(
+      FIREWORKS_URL,
+      {
+        model: "accounts/fireworks/models/deepseek-v3p1",
+        messages
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${FIREWORKS_API_KEY}`,
+          "Content-Type": "application/json"
+        }
+      }
+    );
 
-    const result = await response.json();
-
-    if (!response.ok) {
-      console.error("Gemini API Error:", result);
-      return res.status(response.status).json({
-        message: result.error?.message || "Gemini API request failed",
-      });
-    }
-
-    const text = result?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    if (!text) {
-      console.error("Malformed Gemini response:", result);
-      return res.status(500).json({ message: "AI returned empty response." });
-    }
-
+    const text = response.data?.choices?.[0]?.message?.content || "";
     res.json({ text });
-  } catch (error) {
-    console.error("Error calling Gemini API:", error);
-    res.status(500).json({ message: "Internal server error during interview generation." });
+
+  } catch (err) {
+    console.error("Interview Question Error:", err);
+    res.status(500).json({ message: "Failed to generate question" });
   }
 };
 
-export default { getInterviewQuestion };
+
+
+/* ==========================================================
+   🔥 PERFECT FIREWORKS CODING PROBLEM GENERATOR
+   - Returns ONLY valid JSON
+   - No raw data
+   - Always parses JSON safely
+========================================================== */
+export const generateCodingProblem = async (req, res) => {
+  try {
+    const randomSeed = Math.floor(Math.random() * 100000);
+    const topics = [
+      "math operations", "logic gates", "comparisons",
+      "conditions", "loops", "basic algorithms"
+    ];
+    const topic = topics[Math.floor(Math.random() * topics.length)];
+
+    const prompt = `
+Generate a beginner-friendly coding problem using two integer inputs a and b.
+
+Topic: ${topic}
+Seed: ${randomSeed}
+
+Respond ONLY with valid JSON.
+NO markdown. NO text outside the JSON.
+
+Expected JSON format:
+{
+  "problemId": "unique_id",
+  "title": "Problem Title",
+  "description": "One-sentence clear problem statement.",
+  "example": "Input: a = 3, b = 5\\nOutput: 8",
+  "functionName": "functionName",
+  "companies": ["Google","Amazon","Microsoft"],
+  "boilerplate": {
+    "javascript": "function functionName(a,b){\\n  // code\\n}",
+    "cpp": "#include <iostream>... ",
+    "python": "def functionName(a,b):\\n  pass"
+  },
+  "testCases": [
+    { "input": "1, 2", "expected": "3" },
+    { "input": "5, 3", "expected": "8" }
+  ]
+}
+RETURN ONLY JSON.
+`;
+
+    // Call Fireworks
+    const response = await axios.post(
+      FIREWORKS_URL,
+      {
+        model: "accounts/fireworks/models/deepseek-v3p1",
+        messages: [
+          {
+            role: "system",
+            content: "You output ONLY valid JSON. No explanations ever."
+          },
+          { role: "user", content: prompt }
+        ],
+        response_format: { type: "json_object" }
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${FIREWORKS_API_KEY}`,
+          "Content-Type": "application/json"
+        }
+      }
+    );
+
+    // Extract JSON text
+    const raw = response.data?.choices?.[0]?.message?.content;
+    if (!raw) {
+      return res.status(500).json({ error: "Empty Fireworks response" });
+    }
+
+    let clean = raw.replace(/```json|```/g, "").trim();
+
+    const match = clean.match(/\{[\s\S]*\}$/);
+    if (!match) {
+      return res.status(500).json({ error: "JSON not found in response", raw });
+    }
+
+    const parsed = JSON.parse(match[0]);
+
+    // Return ONLY parsed JSON
+    res.json(parsed);
+
+  } catch (err) {
+    console.error("🔥 Coding Problem Error:", err.response?.data || err.message);
+    res.status(500).json({
+      error: "Fireworks coding problem generation failed",
+      details: err.response?.data || err.message
+    });
+  }
+};
+
+
+export default {
+  getInterviewQuestion,
+  generateCodingProblem,
+};

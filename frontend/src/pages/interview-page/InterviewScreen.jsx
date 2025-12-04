@@ -881,7 +881,7 @@ import { useNavigate } from "react-router-dom";
 import Editor from "@monaco-editor/react";
 
 // --- Code Editor Modal Component ---
-const CodeEditorModal = ({ isOpen, onClose, problem }) => {
+const CodeEditorModal = ({ isOpen, onClose, problem, onSuccess }) => {
   const [language, setLanguage] = useState("javascript");
   const [output, setOutput] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -902,55 +902,92 @@ const CodeEditorModal = ({ isOpen, onClose, problem }) => {
   }, [problem, language]);
 
   const handleRun = async () => {
-    const code = editorRef.current?.getValue();
-    if (!code || !problem?.testCases) {
-      setOutput([{ id: 0, output: "⚠️ No test cases available!" }]);
-      return;
+  const code = editorRef.current?.getValue();
+  if (!code || !problem?.testCases) {
+    setOutput([{ id: 0, output: "⚠️ No test cases available!" }]);
+    return;
+  }
+
+  setLoading(true);
+  setOutput([{ id: 0, output: "⏳ Running test cases..." }]);
+
+  try {
+    const results = [];
+    let allPassed = true;
+
+    for (let i = 0; i < problem.testCases.length; i++) {
+      const test = problem.testCases[i];
+      const args = test.input;
+
+      const executionBoilerplate =
+        language === "python"
+          ? `\n\nprint(${problem.functionName}(${args}))`
+          : language === "cpp"
+          ? `\n#include <iostream>\nint main() {\n  std::cout << ${problem.functionName}(${args}) << std::endl;\n  return 0;\n}`
+          : `\n\nconsole.log(${problem.functionName}(${args}));`;
+
+      const userCode = `${code}\n${executionBoilerplate}`;
+
+      const res = await fetch("http://localhost:5000/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ language, code: userCode }),
+      });
+
+      const data = await res.json();
+      const result = data.run?.output?.trim() || data.run?.stderr?.trim() || "No output";
+
+      const passed = result === test.expected.trim();
+      if (!passed) allPassed = false;
+
+      results.push({
+        id: i + 1,
+        input: test.input,
+        expected: test.expected,
+        output: result,
+        passed,
+      });
     }
 
-    setLoading(true);
-    setOutput([{ id: 0, output: "⏳ Running test cases..." }]);
+    setOutput(results);
 
-    try {
-      const results = [];
-      for (let i = 0; i < problem.testCases.length; i++) {
-        const test = problem.testCases[i];
-        const args = test.input;
-        const executionBoilerplate =
-          language === "python"
-            ? `\n\nprint(${problem.functionName}(${args}))`
-            : language === "cpp"
-            ? `\n#include <iostream>\nint main() {\n  std::cout << ${problem.functionName}(${args}) << std::endl;\n  return 0;\n}`
-            : `\n\nconsole.log(${problem.functionName}(${args}));`;
+    // 🟢 If all passed → close editor and continue interview
+    if (allPassed) {
+      setOutput(prev => [
+        ...prev,
+        { id: 999, output: "🎉 ALL TEST CASES PASSED! Great job!" }
+      ]);
 
-        const userCode = `${code}\n${executionBoilerplate}`;
+      // Close editor after a small delay
+      // setTimeout(() => {
+      //   setIsCodeEditorOpen(false);
+      // }, 800);
 
-        const res = await fetch("http://localhost:5000/run", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ language, code: userCode }),
-        });
+      // MOVE TO NEXT QUESTION AUTOMATICALLY
+      // handleSendMessage(
+      //   "I have completed the coding problem successfully. Please give me the next interview question."
+      // );
+      if (allPassed) {
+  setOutput(prev => [
+    ...prev,
+    { id: 999, output: "🎉 ALL TEST CASES PASSED! Great job!" }
+  ]);
 
-        const data = await res.json();
-        const result = data.run?.output?.trim() || data.run?.stderr?.trim() || "No output";
-        const passed = result === test.expected.trim();
+  setTimeout(() => {
+    onSuccess();   // <-- tell parent “I passed!”
+  }, 800);
+}
 
-        results.push({
-          id: i + 1,
-          input: test.input,
-          expected: test.expected,
-          output: result,
-          passed,
-        });
-      }
-      setOutput(results);
-    } catch (err) {
-      console.error(err);
-      setOutput([{ id: 0, output: "❌ Execution error. Check backend connection." }]);
-    } finally {
-      setLoading(false);
     }
-  };
+
+  } catch (err) {
+    console.error(err);
+    setOutput([{ id: 0, output: "❌ Execution error. Check backend connection." }]);
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   return (
     <div className="fixed inset-0 z-50 bg-black bg-opacity-80 flex items-center justify-center p-4">
@@ -1493,7 +1530,7 @@ Keep it concise and actionable.`;
 
   const generateCodingProblem = useCallback(async () => {
   try {
-    const response = await fetch("http://localhost:5000/fireworks", {
+    const response = await fetch("http://localhost:5000/api/interview/fireworks", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({}),
@@ -1572,13 +1609,52 @@ When you transition, say something like: "Alright, let's now move on to some tec
 Start introducing simple technical questions like basic concepts or practical examples.
 After 2–3 of these, move into deeper role-specific technical questions.`;
         } else {
-          systemInstruction = `You are now in the technical round for a ${role} at a ${companyType}.
-Ask only one clear technical question at a time based on the candidate's last answer.
-Focus on coding logic, frameworks, problem-solving, and optimization.`;
+          systemInstruction = `
+You are now in the technical round for a ${role} at a ${companyType}.
+Ask ONE technical question at a time.
+
+You MUST include coding problems naturally in the flow.
+Examples:
+- "Write a function to..."
+- "Implement a solution for..."
+- "Solve the following problem..."
+
+Formatting rules:
+1. Only ONE coding problem at a time.
+2. Provide clear input/output examples.
+3. DO NOT mention or open the code editor — the app handles that automatically.
+`;
+
         }
 
         const formattedHistory = formatHistoryForFireworks([...chatMessages, userMsg]);
         const aiReply = await fetchFireworksContent(formattedHistory, systemInstruction);
+        // --- AUTO-DETECT CODING PROBLEM FROM AI ---
+if (
+  aiReply.toLowerCase().includes("coding") ||
+  aiReply.toLowerCase().includes("programming") ||
+  aiReply.toLowerCase().includes("write a function") ||
+  aiReply.toLowerCase().includes("solve") ||
+  aiReply.toLowerCase().includes("implement")
+) {
+  try {
+    const response = await fetch("http://localhost:5000/api/interview/fireworks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+
+    const data = await response.json();
+
+    setCodingProblem(data);      // load coding problem
+    setIsCodeEditorOpen(true);   // auto-open editor
+
+  } catch (err) {
+    console.error("Error loading coding problem:", err);
+    setError("❌ Failed to load coding problem.");
+  }
+}
+
 
         const feedback = await generateFeedbackForAnswer(messageToSend, lastAiQuestion);
         
@@ -1768,6 +1844,86 @@ Focus on coding logic, frameworks, problem-solving, and optimization.`;
       }
     };
   }, []);
+
+  // 🚀 TEST MODE: Generate coding question before greeting
+// 🚀 Generate coding question BEFORE greeting
+  useEffect(() => {
+    if (cameraAllowed && !codingProblem) {
+      console.log("⚡ Generating coding question before greeting...");
+
+      const loadEarlyCodingProblem = async () => {
+        try {
+          setIsLoadingAI(true);
+          const response = await fetch("http://localhost:5000/api/interview/fireworks", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({}),
+          });
+
+          if (!response.ok) {
+            throw new Error("Failed to generate coding problem");
+          }
+
+          const data = await response.json();
+          console.log("✅ Coding problem generated:", data);
+          
+          setCodingProblem(data);
+          setIsCodeEditorOpen(true);
+          
+          // Now proceed with greeting
+          const greetingPrompt = `You are a friendly professional interviewer for a ${role} at a ${companyType}.
+Start the mock interview. Greet the candidate professionally, mention the company type "${companyType}" and the role "${role}",
+then begin with an appropriate first question (like, "Can you start by telling me a little about yourself?").`;
+          
+          const initialMessages = [
+            { role: "user", content: "Start the interview introduction." },
+          ];
+          
+          const aiQ = await fetchFireworksContent(initialMessages, greetingPrompt);
+          
+          // Format the coding problem for chat display
+          const codingQuestionText = `${data.title || "Coding Challenge"}
+
+${data.description || ""}
+
+${data.example ? `Example:\n${data.example}` : ""}
+
+${data.testCases && data.testCases.length > 0 ? `\nTest Cases:\n${data.testCases.map((tc, i) => `${i + 1}. Input: ${tc.input} → Expected: ${tc.expected}`).join('\n')}` : ""}
+
+You can use the Code Editor to solve this problem.`;
+
+          const messages = [
+            {
+              sender: "AI",
+              text: aiQ,
+              time: new Date().toLocaleTimeString(),
+            },
+            {
+              sender: "AI",
+              text: codingQuestionText,
+              time: new Date().toLocaleTimeString(),
+            }
+          ];
+          
+          setChatMessages(messages);
+          
+          // Speak the greeting first, then mention the coding challenge
+          const fullSpeech = `${aiQ}. I've also shared a coding challenge in the chat. Please take a look at it in the code editor.`;
+          await textToSpeech(fullSpeech);
+          setGreeted(true);
+          
+        } catch (err) {
+          console.error("Error in early setup:", err);
+          setError(`❌ Failed to initialize interview: ${err.message}`);
+        } finally {
+          setIsLoadingAI(false);
+        }
+      };
+
+      loadEarlyCodingProblem();
+    }
+  }, [cameraAllowed, greeted, codingProblem, role, companyType, fetchFireworksContent, textToSpeech]);
+
 
   useEffect(() => {
     if (cameraAllowed && companyType && role && !greeted) {
@@ -1992,7 +2148,13 @@ Send
           <span className="text-xs font-medium">Chat</span>
         </button>
         <button
-  onClick={generateCodingProblem} // Opens code editor with generated problem
+  onClick={() => {
+    if (!codingProblem) {
+      setError("⚠️ No coding problem assigned yet!");
+      return;
+    }
+    setIsCodeEditorOpen(true);
+  }}
   disabled={isLoadingAI}
   className="flex flex-col items-center text-gray-300 hover:text-white transition disabled:opacity-50"
 >
@@ -2001,13 +2163,21 @@ Send
 </button>
 
 
+
+
       </div>
       {isCodeEditorOpen && (
   <CodeEditorModal
-    isOpen={isCodeEditorOpen}
-    onClose={() => setIsCodeEditorOpen(false)}
-    problem={codingProblem}
-  />
+  isOpen={isCodeEditorOpen}
+  onClose={() => setIsCodeEditorOpen(false)}
+  problem={codingProblem}
+  onSuccess={() => {
+    setIsCodeEditorOpen(false);
+    handleSendMessage(
+      "I have completed the coding problem successfully. Please give me the next interview question."
+    );
+  }}
+/>
 )}
 
     </div>
