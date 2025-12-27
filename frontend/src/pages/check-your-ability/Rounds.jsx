@@ -33,7 +33,7 @@ const Rounds = ({ companyType, role }) => {
       
       // Navigate with state flag indicating interview is active
       navigate("/interview", { 
-  state: { companyType, role, preventBack: true },
+  state: { companyType, role, rounds, preventBack: true },
   replace: true // prevents back navigation from Rounds to Interview
 });
 

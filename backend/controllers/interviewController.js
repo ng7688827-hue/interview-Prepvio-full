@@ -3,7 +3,7 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-const FIREWORKS_API_KEY = 'fw_3ZLCds9uiu6JBgAe2VWkWYh9';
+const FIREWORKS_API_KEY = 'fw_3ZbHnsRsTg9cHxxESpgxzMim';
 const FIREWORKS_URL = "https://api.fireworks.ai/inference/v1/chat/completions";
 
 /* ==========================================================
